@@ -34,6 +34,11 @@ const ReactMarkdown = dynamic(() => import('react-markdown'), {
   loading: () => <div className="animate-pulse bg-gray-200 dark:bg-gray-700 h-6 w-full rounded" />,
 });
 
+const Mermaid = dynamic(() => import('react-mermaid2'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse bg-gray-200 dark:bg-gray-700 h-24 w-full rounded" />,
+});
+
 const ChatAiIcons = [
   {
     icon: CopyIcon,
@@ -182,7 +187,7 @@ export default function Home() {
       {typeof content === 'string' ? (
         content.split("```").map((part, index) => {
           if (index % 2 === 0) {
-            // Check if the part contains chart data JSON
+            // Check for chart data or mermaid diagram
             try {
               const parsed = JSON.parse(part);
               if (parsed.chart) {
@@ -194,6 +199,12 @@ export default function Home() {
                     options={parsed.chart.options}
                     className="mt-2"
                   />
+                );
+              } else if (parsed.mermaid) {
+                return (
+                  <div key={index} className="my-4">
+                    <Mermaid chart={parsed.mermaid} />
+                  </div>
                 );
               }
             } catch (e) {
@@ -207,7 +218,15 @@ export default function Home() {
               </ReactMarkdown>
             );
           } else {
-            // Process code blocks
+            // Check if it's a mermaid code block
+            if (part.trim().startsWith('mermaid')) {
+              return (
+                <div key={index} className="my-4">
+                  <Mermaid chart={part.replace('mermaid\n', '')} />
+                </div>
+              );
+            }
+            // Regular code block
             return (
               <pre className="whitespace-pre-wrap pt-2" key={index}>
                 <CodeDisplayBlock code={part} lang="" />
@@ -221,13 +240,22 @@ export default function Home() {
           {/* Handle non-string content if necessary */}
         </div>
       )}
-      {functionOutput && functionOutput.chart && (
-        <Chart
-          type={functionOutput.chart.type}
-          data={functionOutput.chart.data}
-          options={functionOutput.chart.options}
-          className="mt-2"
-        />
+      {functionOutput && (
+        <>
+          {functionOutput.chart && (
+            <Chart
+              type={functionOutput.chart.type}
+              data={functionOutput.chart.data}
+              options={functionOutput.chart.options}
+              className="mt-2"
+            />
+          )}
+          {functionOutput.mermaid && (
+            <div className="my-4">
+              <Mermaid chart={functionOutput.mermaid} />
+            </div>
+          )}
+        </>
       )}
     </MathJax>
   );

@@ -39,7 +39,11 @@ Available functions:
    Available types: bar, line, pie
    Example: When visualizing mathematical relationships or data patterns
 
-Always explain the mathematical concept first, then use code to demonstrate or verify the solution.`;
+3. generateMermaid: Use this for creating diagrams:
+   - Flowcharts for mathematical processes
+   - Sequence diagrams for step-by-step solutions
+   - Class diagrams for mathematical relationships
+   Available types: flowchart, sequence, class, state, er, gantt`;
 
 const toolDeclarations = [
   {
@@ -81,6 +85,25 @@ const toolDeclarations = [
             },
           },
           required: ["type", "data", "labels"],
+        },
+      },
+      {
+        name: "generateMermaid",
+        description: "Generates a Mermaid diagram",
+        parameters: {
+          type: "object",
+          properties: {
+            code: {
+              type: "string",
+              description: "Mermaid diagram code",
+            },
+            type: {
+              type: "string",
+              description: "Type of diagram (flowchart, sequence, etc.)",
+              enum: ["flowchart", "sequence", "class", "state", "er", "gantt"],
+            },
+          },
+          required: ["code", "type"],
         },
       },
     ],
@@ -169,6 +192,17 @@ export async function POST(req: NextRequest) {
                         } catch (err) {
                             console.error('Chart generation Error:', err);
                             functionResponse = 'Error generating chart.';
+                        }
+                        break;
+                    case 'generateMermaid':
+                        console.log('Generating Mermaid diagram');
+                        try {
+                            functionResponse = {
+                                mermaid: args.code
+                            };
+                        } catch (err) {
+                            console.error('Mermaid generation Error:', err);
+                            functionResponse = 'Error generating Mermaid diagram.';
                         }
                         break;
                     default:
