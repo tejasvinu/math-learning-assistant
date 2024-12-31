@@ -15,7 +15,6 @@ import {
   ChatBubble,
   ChatBubbleAction,
   ChatBubbleAvatar,
-  ChatBubbleMessage,
 } from "@/components/ui/chat/chat-bubble";
 import { ChatInput } from "@/components/ui/chat/chat-input";
 import { ChatMessageList } from "@/components/ui/chat/chat-message-list";
@@ -23,6 +22,9 @@ import remarkGfm from "remark-gfm";
 import CodeDisplayBlock from "@/components/code-display-block";
 import 'chart.js/auto';
 import { Chart } from 'react-chartjs-2';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 
 const MathJax = dynamic(() => import('better-react-mathjax').then(mod => mod.MathJax), {
   ssr: false,
@@ -68,6 +70,8 @@ export default function Home() {
   const [messages, setMessages] = useState<{ role: string; content: string; functionOutput?: any }[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [activeQuiz, setActiveQuiz] = useState(null);
+  const [quizAnswer, setQuizAnswer] = useState('');
 
   const messagesRef = useRef(null);
   const formRef = useRef(null);
@@ -182,90 +186,139 @@ export default function Home() {
     }
   };
 
-  const MessageContent = ({ content, functionOutput }) => (
-    <MathJax dynamic>
-      {typeof content === 'string' ? (
-        content.split("```").map((part, index) => {
-          if (index % 2 === 0) {
-            // Check for chart data or mermaid diagram
-            try {
-              const parsed = JSON.parse(part);
-              if (parsed.chart) {
-                return (
-                  <Chart
-                    key={index}
-                    type={parsed.chart.type}
-                    data={parsed.chart.data}
-                    options={parsed.chart.options}
-                    className="mt-2"
-                  />
-                );
-              } else if (parsed.mermaid) {
+  const handleQuizSubmit = async () => {
+    if (!activeQuiz || !quizAnswer) return;
+
+    const userMessage = {
+      role: 'user',
+      content: `My answer to the quiz "${activeQuiz.question}" is: ${quizAnswer}`,
+      isQuizAnswer: true,
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setIsGenerating(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [...messages, userMessage] }),
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch response');
+
+      const data = await response.json();
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.response,
+        functionOutput: data.functionOutput
+      }]);
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setIsGenerating(false);
+      setActiveQuiz(null);
+      setQuizAnswer('');
+    }
+  };
+
+  const QuizComponent = ({ quiz }) => {
+    if (!quiz) return null;
+
+    return (
+      <div className="mt-4 p-4 border rounded-lg bg-gray-50 dark:bg-gray-800">
+        <h3 className="font-semibold mb-3">{quiz.question}</h3>
+        {quiz.type === 'mcq' ? (
+          <RadioGroup value={quizAnswer} onValueChange={setQuizAnswer}>
+            {quiz.options.map((option, idx) => (
+              <div key={idx} className="flex items-center space-x-2">
+                <RadioGroupItem value={option} id={`option-${idx}`} />
+                <Label htmlFor={`option-${idx}`}>{option}</Label>
+              </div>
+            ))}
+          </RadioGroup>
+        ) : (
+          <Input
+            type="text"
+            placeholder="Type your answer..."
+            value={quizAnswer}
+            onChange={(e) => setQuizAnswer(e.target.value)}
+            className="mt-2"
+          />
+        )}
+        <Button
+          onClick={handleQuizSubmit}
+          className="mt-4"
+          disabled={!quizAnswer}
+        >
+          Submit Answer
+        </Button>
+      </div>
+    );
+  };
+
+  const MessageContent = ({ content, functionOutput }) => {
+    useEffect(() => {
+      if (functionOutput?.quiz) {
+        setActiveQuiz(functionOutput.quiz);
+      }
+    }, [functionOutput]);
+
+    return (
+      <MathJax dynamic>
+        {typeof content === 'string' ? (
+          content.split("```").map((part, index) => {
+            if (index % 2 === 0) {
+              return (
+                <ReactMarkdown key={index} remarkPlugins={[remarkGfm]}>
+                  {part.replace(/\$(.*?)\$/g, (_, math) => `$${math}$`)}
+                </ReactMarkdown>
+              );
+            } else {
+              if (part.trim().startsWith('mermaid')) {
                 return (
                   <div key={index} className="my-4">
-                    <Mermaid chart={parsed.mermaid} />
+                    <Mermaid chart={part.replace('mermaid\n', '')} />
                   </div>
                 );
               }
-            } catch (e) {
-              // Not JSON, proceed to render as text
-            }
-
-            // Process text parts with LaTeX
-            return (
-              <ReactMarkdown key={index} remarkPlugins={[remarkGfm]}>
-                {part.replace(/\$(.*?)\$/g, (_, math) => `$${math}$`)}
-              </ReactMarkdown>
-            );
-          } else {
-            // Check if it's a mermaid code block
-            if (part.trim().startsWith('mermaid')) {
               return (
-                <div key={index} className="my-4">
-                  <Mermaid chart={part.replace('mermaid\n', '')} />
-                </div>
+                <pre className="whitespace-pre-wrap pt-2" key={index}>
+                  <CodeDisplayBlock code={part} lang="" />
+                </pre>
               );
             }
-            // Regular code block
-            return (
-              <pre className="whitespace-pre-wrap pt-2" key={index}>
-                <CodeDisplayBlock code={part} lang="" />
-              </pre>
-            );
-          }
-        })
-      ) : (
-        // If content is not a string (e.g., chart data), render accordingly
-        <div>
-          {/* Handle non-string content if necessary */}
-        </div>
-      )}
-      {functionOutput && (
-        <>
-          {functionOutput.chart && (
-            <Chart
-              type={functionOutput.chart.type}
-              data={functionOutput.chart.data}
-              options={functionOutput.chart.options}
-              className="mt-2"
-            />
-          )}
-          {functionOutput.mermaid && (
-            <div className="my-4">
-              <Mermaid chart={functionOutput.mermaid} />
-            </div>
-          )}
-        </>
-      )}
-    </MathJax>
-  );
+          })
+        ) : (
+          <div>
+            {/* Handle non-string content */}
+          </div>
+        )}
+        {functionOutput && (
+          <>
+            {functionOutput.chart && (
+              <Chart
+                type={functionOutput.chart.type}
+                data={functionOutput.chart.data}
+                options={functionOutput.chart.options}
+                className="mt-2"
+              />
+            )}
+            {functionOutput.mermaid && (
+              <div className="my-4">
+                <Mermaid chart={functionOutput.mermaid} />
+              </div>
+            )}
+            {functionOutput.quiz && <QuizComponent quiz={functionOutput.quiz} />}
+          </>
+        )}
+      </MathJax>
+    );
+  };
 
   const ChatBubbleMessage = ({ children }) => (
     <div>
       {children}
-      {/* Render chart if message contains chart data */}
-      {/* Example: */}
-      {/* <Chart type="bar" data={chartData} /> */}
     </div>
   );
 

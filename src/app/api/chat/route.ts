@@ -11,6 +11,16 @@ interface ChatMessage {
   parts: { text?: string; functionCall?: any; functionResponse?: any }[];
 }
 
+// Add new type definitions
+type QuizType = "mcq" | "fillInBlank";
+
+interface Quiz {
+  type: QuizType;
+  question: string;
+  options?: string[];
+  correctAnswer: string;
+}
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 const SYSTEM_PROMPT = `You are a helpful math tutor who explains mathematical concepts clearly and can demonstrate solutions using Python code and visualizations. 
@@ -43,7 +53,12 @@ Available functions:
    - Flowcharts for mathematical processes
    - Sequence diagrams for step-by-step solutions
    - Class diagrams for mathematical relationships
-   Available types: flowchart, sequence, class, state, er, gantt`;
+   Available types: flowchart, sequence, class, state, er, gantt
+
+For generating quizzes, use the 'generateQuiz' function. When asked to create a question or test knowledge:
+- Create questions that test understanding of the topic
+- Make questions clear and focused
+- Always use the generateQuiz function to format the quiz properly`;
 
 const toolDeclarations = [
   {
@@ -104,6 +119,34 @@ const toolDeclarations = [
             },
           },
           required: ["code", "type"],
+        },
+      },
+      {
+        name: "generateQuiz",
+        description: "Generates a quiz question",
+        parameters: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              description: "Type of quiz (mcq or fillInBlank)",
+              enum: ["mcq", "fillInBlank"],
+            },
+            question: {
+              type: "string",
+              description: "The quiz question text",
+            },
+            options: {
+              type: "array",
+              items: { type: "string" },
+              description: "Options for MCQ (required for MCQ type)",
+            },
+            correctAnswer: {
+              type: "string",
+              description: "The correct answer",
+            },
+          },
+          required: ["type", "question", "correctAnswer"],
         },
       },
     ],
@@ -203,6 +246,17 @@ export async function POST(req: NextRequest) {
                         } catch (err) {
                             console.error('Mermaid generation Error:', err);
                             functionResponse = 'Error generating Mermaid diagram.';
+                        }
+                        break;
+                    case 'generateQuiz':
+                        console.log('Generating quiz');
+                        try {
+                            functionResponse = {
+                                quiz: args
+                            };
+                        } catch (err) {
+                            console.error('Quiz generation Error:', err);
+                            functionResponse = 'Error generating quiz.';
                         }
                         break;
                     default:
