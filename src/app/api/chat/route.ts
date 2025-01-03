@@ -154,7 +154,7 @@ const toolDeclarations = [
 ];
 
 const model = genAI.getGenerativeModel({
-  model: "learnlm-1.5-pro-experimental",
+  model: "gemini-exp-1206",
   systemInstruction: SYSTEM_PROMPT,
   tools: toolDeclarations,
   safetySettings: [
@@ -207,105 +207,79 @@ export async function POST(req: NextRequest) {
     const response = result.response;
     let finalResponse = null;
 
-    // Handle function calls if present
-    if (response.candidates && response.candidates[0].content.parts) {
-        for (const part of response.candidates[0].content.parts) {
-            if (part.functionCall) {
-                console.log('Function call detected:', part.functionCall);
-                const functionName = part.functionCall.name;
-                const args = part.functionCall.args;
+    // Simplified function response handling
+    if (response.candidates?.[0].content.parts) {
+      const functionCall = response.candidates[0].content.parts.find(part => part.functionCall);
+      
+      if (functionCall) {
+        const { name: functionName, args } = functionCall.functionCall;
+        let functionOutput = null;
 
-                let functionResponse: string | { chart: string } | null = null;
-                switch (functionName) {
-                    case 'runPython':
-                        console.log('Calling runPython');
-                        try {
-                            const data = await executePythonCode(args.code);
-                            functionResponse = data.output || data.error;
-                        } catch (err) {
-                            console.error('Execution Error:', err);
-                            functionResponse = 'Error executing Python code.';
-                        }
-                        break;
-                    case 'getChart':
-                        console.log('Calling getChart');
-                        try {
-                            const chartData = await getChart(args.type, args.data, args.labels);
-                            functionResponse = { chart: chartData };
-                        } catch (err) {
-                            console.error('Chart generation Error:', err);
-                            functionResponse = 'Error generating chart.';
-                        }
-                        break;
-                    case 'generateMermaid':
-                        console.log('Generating Mermaid diagram');
-                        try {
-                            functionResponse = {
-                                mermaid: args.code
-                            };
-                        } catch (err) {
-                            console.error('Mermaid generation Error:', err);
-                            functionResponse = 'Error generating Mermaid diagram.';
-                        }
-                        break;
-                    case 'generateQuiz':
-                        console.log('Generating quiz');
-                        try {
-                            functionResponse = {
-                                quiz: args
-                            };
-                        } catch (err) {
-                            console.error('Quiz generation Error:', err);
-                            functionResponse = 'Error generating quiz.';
-                        }
-                        break;
-                    default:
-                        console.log('Unknown function:', functionName);
-                        functionResponse = null;
-                        break;
-                }
-
-                if (functionResponse) {
-                    console.log('Function response:', functionResponse);
-                    try {
-                        // Send the function response back to the model
-                        const functionResult = await chatSession.sendMessage([{
-                            functionResponse: {
-                                name: functionName,
-                                response: {
-                                    content: functionResponse
-                                }
-                            }
-                        }]);
-
-                        finalResponse = {
-                            response: functionResult.response.text(),
-                            functionOutput: functionResponse
-                        };
-                    } catch (error) {
-                        console.error('Error processing function response:', error);
-                        return NextResponse.json({ error: 'Error processing function response' }, { status: 500 });
-                    }
-                }
-            }
+        switch (functionName) {
+          case 'runPython':
+            const data = await executePythonCode(args.code);
+            functionOutput = data.output || data.error;
+            break;
+          case 'getChart':
+            functionOutput = { chart: await getChart(args.type, args.data, args.labels) };
+            break;
+          case 'generateMermaid':
+            functionOutput = { mermaid: validateMermaidCode(args.code, args.type) };
+            break;
+          case 'generateQuiz':
+            functionOutput = { quiz: args };
+            break;
         }
+
+        if (functionOutput) {
+          const functionResult = await chatSession.sendMessage([{
+            functionResponse: { name: functionName, response: { content: functionOutput } }
+          }]);
+
+          return NextResponse.json({
+            response: functionResult.response.text(),
+            functionOutput
+          });
+        }
+      }
     }
 
-    // Return combined response
-    if (finalResponse) {
-      console.log('Response sent:', finalResponse);
-      return NextResponse.json(finalResponse);
-    } else {
-      console.log('Response sent:', {
-          response: response.text(),
-      });
-      return NextResponse.json({
-          response: response.text(),
-      });
-    }
-
+    return NextResponse.json({ response: response.text() });
+    
   } catch (error) {
     console.error('Error:', error);
     return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
   }
 }
+
+const validateMermaidCode = (code: string, type: string) => {
+  const typeMap = {
+    'flowchart': 'flowchart TD',
+    'sequence': 'sequenceDiagram',
+    'class': 'classDiagram',
+    'state': 'stateDiagram-v2',
+    'er': 'erDiagram',
+    'gantt': 'gantt'
+  };
+
+  let processedCode = code.trim()
+    .replace(/\\n/g, '\n')
+    .replace(/\\\\/g, '\\')
+    .replace(/\n{2,}/g, '\n')
+    .replace(/^TD;/gm, '')
+    .replace(/^\s*TD\s*$/gm, '');
+
+  // Clean up flowchart declarations
+  if (type === 'flowchart') {
+    processedCode = processedCode
+      .replace(/^(?:graph|flowchart)\s+TD\s+(?:graph|flowchart)\s+TD/gm, typeMap[type])
+      .replace(/^(?:graph|flowchart)\s+TD\s+TD/gm, typeMap[type]);
+  }
+
+  // Ensure proper diagram type prefix
+  if (!processedCode.startsWith(typeMap[type])) {
+    processedCode = `${typeMap[type]}\n${processedCode}`;
+  }
+
+  return processedCode;
+};

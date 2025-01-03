@@ -22,6 +22,7 @@
     "@radix-ui/react-separator": "^1.1.1",
     "@radix-ui/react-slot": "^1.1.1",
     "@radix-ui/react-switch": "^1.1.2",
+    "@radix-ui/react-tabs": "^1.1.2",
     "better-react-mathjax": "^2.0.4-beta1",
     "chart.js": "^4.4.7",
     "class-variance-authority": "^0.7.1",

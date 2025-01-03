@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import dynamic from 'next/dynamic';
 import { MathJaxContext } from 'better-react-mathjax';
 import { BrainCircuit, Paperclip, Mic } from 'lucide-react';
@@ -63,6 +63,29 @@ const config = {
     displayMath: [["$$", "$$"]],
     packages: { "[+]": ["html"] }
   }
+};
+
+// Add new helper for Mermaid preprocessing
+const preprocessMermaidCode = (code: string) => {
+  // Remove any leading/trailing whitespace and clean up the code
+  let processedCode = code.trim()
+    .replace(/\\n/g, '\n')
+    .replace(/\\\\/g, '\\')
+    .replace(/\n{2,}/g, '\n')
+    // Remove TD; that appears at start of lines
+    .replace(/^TD;/gm, '')
+    // Remove standalone TD
+    .replace(/^\s*TD\s*$/gm, '')
+    // Clean up flowchart declarations
+    .replace(/^(?:graph|flowchart)\s+TD\s+(?:graph|flowchart)\s+TD/gm, 'flowchart TD')
+    .replace(/^(?:graph|flowchart)\s+TD\s+TD/gm, 'flowchart TD');
+
+  // If no valid diagram type is present, add flowchart TD
+  if (!/^(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt)/i.test(processedCode)) {
+    processedCode = `flowchart TD\n${processedCode}`;
+  }
+
+  return processedCode;
 };
 
 export default function Home() {
@@ -275,10 +298,24 @@ export default function Home() {
                 </ReactMarkdown>
               );
             } else {
-              if (part.trim().startsWith('mermaid')) {
+              if (part.trim().toLowerCase().startsWith('mermaid')) {
+                const mermaidCode = preprocessMermaidCode(
+                  part.replace(/^mermaid\s*(\{.*\})?\s*/i, '').trim()
+                );
                 return (
                   <div key={index} className="my-4">
-                    <Mermaid chart={part.replace('mermaid\n', '')} />
+                    <ErrorBoundary fallback={<div className="text-red-500">Failed to render diagram</div>}>
+                      <Suspense fallback={<div className="animate-pulse bg-gray-200 dark:bg-gray-700 h-24 w-full rounded" />}>
+                        <Mermaid 
+                          chart={mermaidCode}
+                          config={{
+                            startOnLoad: true,
+                            securityLevel: 'strict',
+                            theme: 'default'
+                          }}
+                        />
+                      </Suspense>
+                    </ErrorBoundary>
                   </div>
                 );
               }
@@ -289,9 +326,21 @@ export default function Home() {
               );
             }
           })
-        ) : (
-          <div>
-            {/* Handle non-string content */}
+        ) : null}
+        {functionOutput?.mermaid && (
+          <div className="my-4">
+            <ErrorBoundary fallback={<div className="text-red-500">Failed to render diagram</div>}>
+              <Suspense fallback={<div className="animate-pulse bg-gray-200 dark:bg-gray-700 h-24 w-full rounded" />}>
+                <Mermaid 
+                  chart={preprocessMermaidCode(functionOutput.mermaid)}
+                  config={{
+                    startOnLoad: true,
+                    securityLevel: 'strict',
+                    theme: 'default'
+                  }}
+                />
+              </Suspense>
+            </ErrorBoundary>
           </div>
         )}
         {functionOutput && (
@@ -306,7 +355,18 @@ export default function Home() {
             )}
             {functionOutput.mermaid && (
               <div className="my-4">
-                <Mermaid chart={functionOutput.mermaid} />
+                <ErrorBoundary fallback={<div className="text-red-500">Failed to render diagram</div>}>
+                  <Suspense fallback={<div className="animate-pulse bg-gray-200 dark:bg-gray-700 h-24 w-full rounded" />}>
+                    <Mermaid 
+                      chart={preprocessMermaidCode(functionOutput.mermaid)}
+                      config={{
+                        startOnLoad: true,
+                        securityLevel: 'strict',
+                        theme: 'default'
+                      }}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
               </div>
             )}
             {functionOutput.quiz && <QuizComponent quiz={functionOutput.quiz} />}
@@ -418,4 +478,23 @@ export default function Home() {
       </main>
     </MathJaxContext>
   );
+}
+
+// Add ErrorBoundary component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
 }
